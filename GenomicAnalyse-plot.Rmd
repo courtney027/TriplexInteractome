@@ -1,0 +1,502 @@
+---
+title: "Genomic data analyses in Triplex interactome paper"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Common R Function
+```{r Common R Function}
+# a) Working directory
+setwd("~/Desktop/TriplexInteractome/Bin")
+# b) Combine dual-axis Plot Function
+# run before plot
+# Define a function to combine ggplot2 plot results for constructing a dual-axis plot：
+# Ref: https://stackoverflow.com/questions/36754891/ggplot2-adding-secondary-y-axis-on-top-of-a-plot
+
+y2_plot <- function(p1, p2) {
+  p1 <- ggplotGrob(p1)
+  p2 <- ggplotGrob(p2)
+  
+  # Get the location of the plot panel in p1.
+  # These are used later when transformed elements of p2 are put back into p1
+  pp <- c(subset(p1$layout, name == 'panel', se = t:r))
+  
+  # Overlap panel for second plot on that of the first plot
+  p1 <- gtable_add_grob(p1, p2$grobs[[which(p2$layout$name == 'panel')]], pp$t, pp$l, pp$b, pp$l)
+  
+  # Then proceed as before:
+  
+  # ggplot contains many labels that are themselves complex grob; 
+  # usually a text grob surrounded by margins.
+  # When moving the grobs from, say, the left to the right of a plot,
+  # Make sure the margins and the justifications are swapped around.
+  # The function below does the swapping.
+  
+  hinvert_title_grob <- function(grob){
+    
+    # Swap the widths
+    widths <- grob$widths
+    grob$widths[1] <- widths[3]
+    grob$widths[3] <- widths[1]
+    grob$vp[[1]]$layout$widths[1] <- widths[3]
+    grob$vp[[1]]$layout$widths[3] <- widths[1]
+    
+    # Fix the justification
+    grob$children[[1]]$hjust <- 1 - grob$children[[1]]$hjust 
+    grob$children[[1]]$vjust <- 1 - grob$children[[1]]$vjust 
+    grob$children[[1]]$x <- unit(1, 'npc') - grob$children[[1]]$x
+    grob
+  }
+  
+  # Get the y axis title from p2
+  index <- which(p2$layout$name == 'ylab-l') # Which grob contains the y axis title?
+  ylab <- p2$grobs[[index]]                # Extract that grob
+  ylab <- hinvert_title_grob(ylab)         # Swap margins and fix justifications
+  
+  # Put the transformed label on the right side of p1
+  p1 <- gtable_add_cols(p1, p2$widths[p2$layout[index, ]$l], pp$r)
+  p1 <- gtable_add_grob(p1, ylab, pp$t, pp$r + 1, pp$b, pp$r + 1, clip = 'off', name = 'ylab-r')
+  
+  # Get the y axis from p2 (axis line, tick marks, and tick mark labels)
+  index <- which(p2$layout$name == 'axis-l')  # Which grob
+  yaxis <- p2$grobs[[index]]                  # Extract the grob
+  
+  # yaxis is a complex of grobs containing the axis line, the tick marks, and the tick mark labels.
+  # The relevant grobs are contained in axis$children:
+  #   axis$children[[1]] contains the axis line;
+  #   axis$children[[2]] contains the tick marks and tick mark labels.
+  
+  # First, move the axis line to the left
+  yaxis$children[[1]]$x <- unit.c(unit(0, 'npc'), unit(0, 'npc'))
+  
+  # Second, swap tick marks and tick mark labels
+  ticks <- yaxis$children[[2]]
+  ticks$widths <- rev(ticks$widths)
+  ticks$grobs <- rev(ticks$grobs)
+  
+  # Third, move the tick marks
+  ticks$grobs[[1]]$x <- ticks$grobs[[1]]$x - unit(1, 'npc') + unit(3, 'pt')
+  
+  # Fourth, swap margins and fix justifications for the tick mark labels
+  ticks$grobs[[2]] <- hinvert_title_grob(ticks$grobs[[2]])
+  
+  # Fifth, put ticks back into yaxis
+  yaxis$children[[2]] <- ticks
+  
+  # Put the transformed yaxis on the right side of p1
+  p1 <- gtable_add_cols(p1, p2$widths[p2$layout[index, ]$l], pp$r)
+  p1 <- gtable_add_grob(p1, yaxis, pp$t, pp$r + 1, pp$b, pp$r + 1, clip = 'off', name = 'axis-r')
+  grid.newpage()
+  grid.draw(p1)
+}
+```
+
+## Fig 3d, Extended Data Fig 6e and Extended Data Fig 7a-b
+```{r message=F,warning=F}
+library(ggplot2)
+# read data
+# ChIP-seq peak number intersected with S1-END-Seq from merged cell lines (Fig 3 and Extended Data Fig 6)
+known <- read.table("./known_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
+ms <- read.table("./MS_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
+hepg2 <- read.table("./TF_HepG2_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
+k562 <- read.table("./TF_K562_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
+
+# ChIP-seq peak number intersected with S1-END-Seq from shared cell lines (Extended Data Fig 7)
+known_shared <- read.table("./known_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
+ms_shared <- read.table("./MS_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
+hepg2_shared <- read.table("./TF_HepG2_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
+k562_shared <- read.table("./TF_K562_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
+
+# merge TF from HepG2 and K562
+k562$V1 <- gsub("-human", "", k562$V1)
+k562_shared$V1 <- gsub("-human", "", k562_shared$V1)
+hepg2$V1 <- gsub("-human", "", hepg2$V1)
+hepg2_shared$V1 <- gsub("-human", "", hepg2_shared$V1)
+tf <- merge(k562, hepg2, by = "V1", all = TRUE)
+tf[is.na(tf)] <- 0
+tf_shared <- merge(k562_shared, hepg2_shared, by = "V1", all = TRUE)
+tf_shared[is.na(tf_shared)] <- 0
+
+# calculate count and total (need total number)
+# TF (public ChIP-seq)
+tf$total <- ifelse(tf$V3.x > tf$V3.y, tf$V2.x, tf$V2.y) # total
+tf_shared$total <- ifelse(tf_shared$V3.x > tf_shared$V3.y, 
+                          tf_shared$V2.x, tf_shared$V2.y) # total
+tf$count <- pmax(tf$V3.x, tf$V3.y, na.rm = TRUE) # max
+tf_shared$count <- pmax(tf_shared$V3.x, tf_shared$V3.y, na.rm = TRUE) # max
+colnames(tf)[1] <- "protein"
+colnames(tf_shared)[1] <- "protein"
+TF <- tf[,c(1,6,7)]
+TF_shared <- tf_shared[,c(1,6,7)]
+protein_filter<-c("CHD4","DDX17","DDX21","DDX5","DNMT1","HNRNPC","HNRNPK","MATR3","NUP93"
+                  ,"PCBP1","PCBP2","PDS5A","PHB2","PSIP1", "SFPQ","SMARCA5","TIF1B","TOP2A","TOP2B","XRCC5",
+                  "DDX11","BRIP1","WRN","BLM","DHX9","p53","RPA1","HNRNPL","HNRNPA2B1","PTBP1","ORC4",
+                  "NONO","U2AF2","Vim", "GFAP","DES")
+TF <- TF[!(TF$protein %in% protein_filter), ]
+TF_shared <- TF_shared[!(TF_shared$protein %in% protein_filter), ]
+TF$type <- "TF"
+TF_shared$type <- "TF_shared"
+TF$ratio <- TF$count/TF$total
+TF_shared$ratio <- TF_shared$count/TF_shared$total
+# ms (our MS proteins ChIP-seq)
+ms$type <- "ms"
+ms_shared$type <- "ms_shared"
+ms <- ms[order(ms[, 3], decreasing = TRUE), ]
+ms_shared <- ms_shared[order(ms_shared[, 3], decreasing = TRUE), ]
+ms$ratio <- ms$V3/ms$V2
+ms_shared$ratio <- ms_shared$V3/ms_shared$V2
+# known (known triplex proteins ChIP-seq)
+known$type <- "known"
+known_shared$type <- "known_shared"
+known$ratio <- known$V3/known$V2
+known_shared$ratio <- known_shared$V3/known_shared$V2
+
+colnames(TF) <- c("protein", "total", "count", "type")
+colnames(TF_shared) <- c("protein", "total", "count", "type")
+colnames(ms) <- c("protein", "total", "count", "type")
+colnames(ms_shared) <- c("protein", "total", "count", "type")
+colnames(known) <- c("protein", "total", "count", "type")
+colnames(known_shared) <- c("protein", "total", "count", "type")
+
+MS <- ms[order(-ms$count), ]
+MS_shared <- ms_shared[order(-ms_shared$count), ]
+
+df1 <- rbind(ms, known)
+df1_shared <- rbind(ms_shared, known_shared)
+
+df2 <- rbind(df1, TF)
+df2_shared <- rbind(df1_shared,TF_shared)
+
+# CDF plot
+p1 <- ggplot(df2, aes(x = count, color = type)) +
+  stat_ecdf() +
+  labs(x = "Number of ChIP-seq peaks \n intersected with merged HDNA", 
+       y = "cumulative distribution funcition (CDF)") +
+  scale_color_manual(values = c("#6A3D9A", "#1F78B4", "#33A02C")) +
+  theme(panel.background = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.title.y = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.text = element_text(color = "black", size = 11), 
+        panel.border = element_rect(linetype = "solid", colour = "black", fill = "NA", size = 1), 
+        panel.spacing.x = unit(0.1, "cm"), 
+        legend.title = element_blank(), 
+        legend.key=element_blank(), 
+        legend.text = element_text(color = "black", size = 10), 
+        legend.spacing.x = unit(0.1, 'cm'), 
+        legend.background = element_blank(), 
+        legend.position = c(1, 0), legend.justification = c(1, 0))
+p1 + coord_cartesian(xlim = c(0, 2000))
+
+p1_shared <- ggplot(df2_shared, aes(x = count, color = type)) +
+  stat_ecdf() +
+  labs(x="Number of ChIP-seq peaks \n intersected with shared H-DNA", 
+       y="cumulative distribution funcition (CDF)") +
+  scale_color_manual(values = c("#6A3D9A", "#1F78B4", "#33A02C")) +
+  theme(panel.background = element_blank(), 
+        panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.title.y = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.text = element_text(color = "black", size = 11), 
+        panel.border = element_rect(linetype = "solid", colour = "black", fill = "NA", size = 1), 
+        panel.spacing.x = unit(0.1, "cm"), 
+        legend.title = element_blank(), 
+        legend.key=element_blank(), 
+        legend.text = element_text(color = "black", size = 10), 
+        legend.spacing.x = unit(0.1, 'cm'), 
+        legend.background = element_blank(), 
+        legend.position = c(1, 0), legend.justification = c(1, 0))
+p1_shared + coord_cartesian(xlim = c(0, 200))
+
+# ks.test
+ks.test(ms$count, tf$count)
+ks.test(known$count, tf$count)
+ks.test(ms$count, known$count)
+
+ks.test(ms_shared$count, tf_shared$count)
+ks.test(known_shared$count, tf_shared$count)
+ks.test(ms_shared$count, known_shared$count)
+
+# bar plot of candidate proteins
+colnames(ms) <- c("protein", "total", "count", "type", "ratio")
+colnames(ms_shared) <- c("protein", "total", "count", "type", "ratio")
+
+p2 <- ggplot(ms, aes(x = protein, y = count, fill = type)) +
+  geom_bar(stat = 'identity', position = "stack") +
+  scale_x_discrete(limits = ms$protein) +
+  labs(x = NULL)+
+  scale_fill_manual(values = c("#6A3D9A")) +
+  theme(panel.background = element_blank(), panel.grid.minor = element_blank(), 
+        axis.title.x = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.title.y = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.text = element_text(color = "black", size = 11), 
+        axis.text.x = element_text(angle = 90, hjust = 1), 
+        panel.border = element_rect(linetype = "solid", colour = "black", fill = "NA", size= 1), 
+        panel.spacing.x = unit(0.1, "cm"), 
+        legend.title = element_blank(), 
+        legend.key = element_blank(), 
+        legend.text = element_text(color = "black", size = 10), 
+        legend.spacing.x = unit(0.1, 'cm'), 
+        legend.background = element_blank(), 
+        legend.position = c(1, 1), legend.justification = c(1, 1)) +
+  geom_text(aes(x = protein, y = count, label = count), vjust = -0.5, size = 3.5, fontface = 'bold') +
+  #geom_line(aes(x= protein,y=ratio*100*60,group=1),linetype=3,cex=1) +
+  #geom_point(aes(x= protein,y=ratio*100*60),color='#33A02C',size=3.5) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 1200), 
+                     sec.axis = sec_axis(~ . / 60, name = "Ratio"), name = "Count")
+p2
+
+p2_shared <- ggplot(ms_shared, aes(x = protein, y = count, fill = type)) +
+  geom_bar(stat = 'identity', position = "stack") +
+  scale_x_discrete(limits = ms_shared$protein) +
+  labs(x = NULL)+
+  scale_fill_manual(values = c("#6A3D9A")) +
+  theme(panel.background = element_blank(), panel.grid.minor = element_blank(),
+        axis.title.x = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.title.y = element_text(margin = margin(r = 5), size = 11, color = "black", face = "bold"), 
+        axis.text = element_text(color = "black", size = 11), 
+        axis.text.x = element_text(angle = 90, hjust = 1), 
+        panel.border = element_rect(linetype = "solid", colour = "black", fill = "NA", size = 1), 
+        panel.spacing.x = unit(0.1, "cm"), 
+        legend.title = element_blank(), 
+        legend.key = element_blank(), 
+        legend.text = element_text(color = "black", size = 10), 
+        legend.spacing.x = unit(0.1, 'cm'), 
+        legend.background = element_blank(), 
+        legend.position = c(1, 1), legend.justification = c(1, 1)) +
+  geom_text(aes(x = protein, y = count, label = count), vjust = -0.5, size = 3.5, fontface = 'bold') +
+  #geom_line(aes(x= protein,y=ratio*100*60,group=1),linetype=3,cex=1)+
+  #geom_point(aes(x= protein,y=ratio*100*60),color='#33A02C',size=3.5)+
+  scale_y_continuous(expand = c(0,0), limits = c(0,65), 
+                     sec.axis = sec_axis(~ . / 60, name = "Ratio"), name = "Count")
+p2_shared
+```
+
+## Fig 3e-g
+```{r message=F,warning=F}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+# Merged five cell lines of S1-END-seq-mapped reference set.
+# bw of three pattern proteins were plot on the stranded homopyrimidine direction bed6 file (S1-END-seq H-DNA) by computeMatrix (version 3.5.1).
+# bw of KM12 cell line (rep1 with reverse and forward strand in S1-END-seq data) were plot on the bed file (S1-END-seq H-DNA) with homopyrimidine and homopurine location, resepctively, and then reverse the signal from back to front columns in resulted homopurine matrix, finally merged into homopyrimidine matrix.
+data_path_pattern1 <- "HNRNPK_PCBP1_PCBP2_S1ENDSeq_CTAG_center_2k"
+data_path_pattern2 <- "DDX5_SMARCA5_PSIP1_S1ENDSeq_CTAG_center_2K"
+data_path_pattern3 <- "DNMT1_TOP2A_MATR3_S1ENDSeq_CTAG_center_2K"
+data_path_KM12 <- "KM12_S1ENDSeq_CT_center_2K"
+
+CT_pattern1 <- read_delim(data_path_pattern1, 
+                        delim = "\t", 
+                        skip = 1, 
+                        col_names = F) %>% na.omit()
+CT_pattern2 <- read_delim(data_path_pattern2, 
+                        delim = "\t", 
+                        skip = 1, 
+                        col_names = F) %>% na.omit()
+CT_pattern3 <- read_delim(data_path_pattern3, 
+                          delim = "\t", 
+                          skip = 1, 
+                          col_names = F) %>% na.omit()
+CT_KM12 <- read_delim(data_path_KM12, 
+                      delim = "\t", 
+                      skip = 1, 
+                      col_names = F) %>% na.omit()
+
+# keep column of ID and signal value (Take pattern 1 as example)
+## protein
+data_agg_merge_CT_pattern1 <- CT_pattern1[, -c(1:3, 5, 6)]
+data_agg_merge_CT_pattern1_mean <- colMeans(data_agg_merge_CT_pattern1[, -1]) %>%
+  as.data.frame()
+data_agg_merge_CT_pattern1_mean$bin_number <- c(1:400)
+data_agg_merge_CT_pattern1_mean$type[1:400] <- "HNRNPK"
+data_agg_merge_CT_pattern1_mean$type[401:800] <- "PCBP1"
+data_agg_merge_CT_pattern1_mean$type[801:1200] <- "PCBP2"
+
+## KM12 bw
+data_agg_merge_CT_KM12 <- CT_KM12[, -c(1:3, 5, 6)]
+data_agg_merge_CT_KM12_mean <- colMeans(data_agg_merge_CT_KM12[, -1]) %>%
+  as.data.frame()
+data_agg_merge_CT_KM12_mean$bin_number <- c(1:400)
+data_agg_merge_CT_KM12_mean$type[1:400] <- "Forward"
+data_agg_merge_CT_KM12_mean$type[401:800] <- "Reverse"
+# plot pattern respectively
+colnames(data_agg_merge_CT_pattern1_mean) <- c("signal", "bin_number", "type")
+colnames(data_agg_merge_CT_KM12_mean) <- c("signal", "bin_number", "type")
+
+# plot
+data_plot_pattern1 <- data_agg_merge_CT_pattern1_mean
+data_plot_pattern1$type <- factor(data_plot_pattern1$type, levels = unique(data_plot_pattern1$type))
+data_plot_KM12 <- data_agg_merge_CT_KM12_mean
+data_plot_KM12$type <- factor(data_plot_KM12$type, levels  = unique(data_plot_KM12$type))
+x_axis <- seq(0, max(data_plot_KM12$bin_number), 
+              max(data_plot_KM12$bin_number)/4)
+x_axis_pattern1 <- seq(0, max(data_plot_pattern1$bin_number), 
+                       max(data_plot_pattern1$bin_number)/4)
+#fill_value <- c("#AAB1FF","#004CFF","#29FFCE","#000000","#808080")
+y <- data_plot_KM12$signal
+x <- data_plot_KM12$bin_number
+
+p1 <- ggplot(data = data_plot_pattern1, aes(x = data_plot_pattern1$bin_number, colors = type)) +
+  geom_line(aes(y = ifelse(type %in% c("HNRNPK", "PCBP1", "PCBP2"), signal, NA))) +
+  scale_x_continuous(breaks = x_axis_pattern1,
+                     labels = c("-2", "-1", "Center", "1", "2")) +
+  #scale_color_manual(values= c("#67c2a3" ,"#29abe2", "#e889bd")) +
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill = NA, color = 'black'), 
+        axis.text.y = element_text(color = 'blue'), axis.ticks.y = element_line(color = 'blue'), 
+        axis.title.y = element_text(color = 'blue')) +
+  labs(y = 'ChIP-seq signal (CPM)')
+p1
+p2 <- ggplot(data = data_plot_KM12, aes(x = x, colors = type)) +
+  geom_line(aes(y = ifelse(type %in% c("Forward", "Reverse"), signal, NA))) +
+  scale_x_continuous(breaks = x_axis,
+                     labels = c("-2", "-1", "Center", "1", "2")) +
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill = NA, color = 'black'), 
+        axis.text.y = element_text(color = 'blue'), axis.ticks.y = element_line(color = 'blue'), 
+        axis.title.y = element_text(color = 'blue')) +
+  labs(y = 'H-DNA signal (CPM)')
+p2
+y2_plot(p1, p2)
+```
+
+## Extended Data Fig 6d
+# H-DNA repeat information processed code after H-DNA.py
+```{shell}
+ls *.txt | while read id; \
+do \
+cat ${id} | cut -f 1,4,5 | \
+awk -F"[:-]" 'BEGIN{ OFS="\t"; }{print $1,$2,$3,$4,$5}' | \
+awk 'BEGIN{ OFS="\t"; }{print $1,$2+$4-1,$2+$5}' | sort -k1,1 -k2,2n -k3,3n | \
+bedtools merge -i - | sort -u > ./${id%.*}.merge.srt.HDNA.bed; \
+done
+
+ls *.txt | while read id; \
+do \
+cat ${id} | cut -f 1 | sed '1d' | \
+awk -F"[:-]" 'BEGIN{ OFS="\t"; }{print $1,$2,$3,$4,$5}' | sort -k1,1 -k2,2n -k3,3n | \
+sort -u > ./${id%.*}.merge.srt.peak.bed; \
+done
+```
+# Plot of H-DNA ratio on ChIP-seq peaks and control regions
+```{r message=F,warning=F}
+library(readxl)
+library(tidyverse)
+library(ggplot2)
+library(paletteer) 
+## plot 20 candidates and their negative control H-DNA ratio
+HDNA_data <- read_excel("./HDNA_differentError_load.xlsx", 
+                       sheet = 1)
+HDNA_data$E20_per <- HDNA_data$E20 / HDNA_data$peak
+HDNA_data$E20_random_per <- HDNA_data$E20_random / HDNA_data$peak
+HDNA_data %>%
+  select(1,9,10) -> HDNA_data_E20_random
+E20_random_point <- 
+  ggplot(data = HDNA_data_E20_random, 
+         mapping = aes(x = E20_per*100, y = E20_random_per*100)) +
+  geom_point(aes(colour = E20_per)) +
+  scale_color_paletteer_c(palette = "ggthemes::Red-Gold", direction = 1, name = "Error Rate") +
+  # scale_colour_distiller(palette = "PuOr") +
+  scale_y_continuous(limits = c(20, 80), expand = expansion(add = c(0, 10))) + 
+  scale_x_continuous(limits = c(20, 100), expand = expansion(add = c(0, 10))) +
+  geom_abline(slope = 1, intercept = 0, lty = "dashed") + 
+  labs(x = "ChIP-seq peaks (%)", 
+       y = "Control regions (%)") +
+  # theme(axis.text.x = element_text(angle = 90, vjust = .5, hjust=1))+
+  theme(panel.grid = element_blank(), 
+        legend.position = c(0.3, 0.7))
+E20_random_point
+ggsave("E20_random_point_doubleAxis.pdf")
+```
+
+## Extended Data Fig 6f
+```{r message=F,warning=F}
+library(readxl)
+library(ggplot2)
+library(pheatmap)
+library(RColorBrewer)
+
+jaccard_file <- "jaccard_candicates_csv.csv"
+mat <- as.matrix(read.csv(jaccard_file, header = T, row.names = 1))
+
+p1 <- pheatmap(mat, cluster_cols = F, cluster_rows = F,
+         color = colorRampPalette(brewer.pal(9, "OrRd"))(100))
+p2 <- pheatmap(mat[21-p2$tree_col$order, ], 
+               cluster_cols = T, cluster_rows = F, 
+               treeheight_col = 0,  
+               border_color = NA, 
+               legend_breaks = seq(0, 1, 0.2),  
+               cellwidth = 7.5, cellheight = 7.5, 
+               color = colorRampPalette(brewer.pal(9, "OrRd"))(100))
+p2
+```
+
+## Fig 5e
+# Plot of H-DNA ratio on unified region
+```{r message=F,warning=F}
+HDNA <- data.frame(
+  FC_segment = factor(c("<1", "[1, 1.5)", "[1.5, 2)", "≥2"),  
+                      levels =c("<1", "[1, 1.5)", "[1.5, 2)", "≥2")), 
+  HDNA_ratio = c(38.18, 39.29, 45.27, 55.45))
+
+ggplot(HDNA, aes(x = FC_segment, y = HDNA_ratio)) + 
+  geom_bar(stat = "identity") +
+  coord_cartesian(ylim = c(30, 60)) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+## Fig 5f
+```{r message=F,warning=F}
+library(ggplot2)
+# read table from reads coverage file
+γH2AX_DDX3X_unbind <- read.table(file = "./γH2AX_unbindDDX3X_cdf.tab", 
+                                 col.names = c("chr", "start", "end", "scrambled", "siDDX3X"))
+γH2AX_DDX3X_bind <- read.table(file = "./γH2AX_bindDDX3X_cdf.tab", 
+                               col.names = c("chr", "start", "end", "scrambled", "siDDX3X"))
+
+# normalized to spike-in
+γH2AX_DDX3X_unbind$scrambled_spike <- γH2AX_DDX3X_unbind$scrambled*6.8027
+γH2AX_DDX3X_unbind$siDDX3X_spike <- γH2AX_DDX3X_unbind$siDDX3X*8.2645
+γH2AX_DDX3X_bind$scrambled_spike <- γH2AX_DDX3X_bind$scrambled*6.8027
+γH2AX_DDX3X_bind$siDDX3X_spike <- γH2AX_DDX3X_bind$siDDX3X*8.2645
+# calculate ratio of siDDX3X/scrambled
+γH2AX_DDX3X_unbind$siDDX3X_ratio <- γH2AX_DDX3X_unbind$siDDX3X_spike/γH2AX_DDX3X_unbind$scrambled_spike
+γH2AX_DDX3X_bind$siDDX3X_ratio <- γH2AX_DDX3X_bind$siDDX3X_spike/γH2AX_DDX3X_bind$scrambled_spike
+
+ggplot() + 
+  geom_histogram(data = γH2AX_DDX3X_unbind, position = "identity", bins = 50, 
+                 aes(x = log2(siDDX3X_ratio), y = ..density.., fill = "#ef8a62"), alpha = 0.5, linewidth = 0.2) +
+  geom_histogram(data = γH2AX_DDX3X_bind, position = "identity", bins = 50, 
+                 aes(x = log2(siDDX3X_ratio), y = ..density.., fill = "#67a9cf"), alpha = 0.5, linewidth = 0.2) +
+  #geom_line(data = γH2AX_DDX3X_unbind, stat = "density", aes(x = log2(siDDX3X_ratio), col = "#ef8a62")) +
+  #geom_line(data = γH2AX_DDX3X_bind, stat = "density", aes(x = log2(siDDX3X_ratio), col = "#67a9cf")) +
+  coord_cartesian(xlim = c(-2, 4)) +
+  ylab("Density") +
+  xlab("log2(Fold Change of rH2AX)") +
+  theme(panel.grid.major = element_line(colour = "NA"),
+        panel.grid.minor = element_line(colour = "NA"),
+        panel.background = element_rect(fill = "NA"),
+        panel.border = element_rect(colour = "black", fill = NA)) +
+  theme(legend.position = c(0, 1), legend.justification = c(0, 1), 
+        legend.background = element_rect(fill = "transparent"))
+
+ks.test(log2(γH2AX_DDX3X_unbind$siDDX3X_ratio), log2(γH2AX_DDX3X_bind$siDDX3X_ratio))
+```
+
+## Extended Data Fig 9a and 9f
+```{r message=F,warning=F}
+library(RColorBrewer)
+DDX3X_frac <- c(34.61, 46.70, 3.40, 15.29)
+γH2AX_frac <- c(52.35, 19.23, 4.42, 24)
+genomeDist <- data.frame(region = c("GeneBody", "TSS", "TTS", "Intergenic"), 
+                         DDX3X_Frac = DDX3X_frac, γH2AX_frac = γH2AX_frac)
+
+pie(genomeDist$DDX3X_Frac, 
+    labels = c("GeneBody", "TSS", "TTS", "Intergenic"), 
+    init.angle = 0, 
+    border = 'white', 
+    radius = .8, 
+    col = brewer.pal(nrow(genomeDist), "Spectral"))
+```
