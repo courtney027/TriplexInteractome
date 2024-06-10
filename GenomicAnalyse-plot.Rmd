@@ -94,17 +94,17 @@ y2_plot <- function(p1, p2) {
 }
 ```
 
-## Fig 3d, Extended Data Fig 6e and Extended Data Fig 7a-b
+## Fig 4d, Extended Data Fig 7e and Extended Data Fig 8a-b
 ```{r message=F,warning=F}
 library(ggplot2)
 # read data
-# ChIP-seq peak number intersected with S1-END-Seq from merged cell lines (Fig 3 and Extended Data Fig 6)
+# ChIP-seq peak number intersected with S1-END-Seq from merged cell lines (Fig 4 and Extended Data Fig 7)
 known <- read.table("./known_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
 ms <- read.table("./MS_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
 hepg2 <- read.table("./TF_HepG2_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
 k562 <- read.table("./TF_K562_withoutPromoter_Intersect_S1ENDSeqHDNA.txt", header = F, sep = "\t")
 
-# ChIP-seq peak number intersected with S1-END-Seq from shared cell lines (Extended Data Fig 7)
+# ChIP-seq peak number intersected with S1-END-Seq from shared cell lines (Extended Data Fig 8)
 known_shared <- read.table("./known_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
 ms_shared <- read.table("./MS_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
 hepg2_shared <- read.table("./TF_HepG2_withoutPromoter_Intersect_S1ENDSeqHDNA_shared.txt", header = F, sep = "\t")
@@ -275,7 +275,7 @@ p2_shared <- ggplot(ms_shared, aes(x = protein, y = count, fill = type)) +
 p2_shared
 ```
 
-## Fig 3e-g
+## Fig 4e-g
 ```{r message=F,warning=F}
 library(readr)
 library(tidyverse)
@@ -361,7 +361,7 @@ p2
 y2_plot(p1, p2)
 ```
 
-## Extended Data Fig 6d
+## Extended Data Fig 7d
 # H-DNA repeat information processed code after H-DNA.py
 ```{shell}
 ls *.txt | while read id; \
@@ -410,7 +410,7 @@ E20_random_point
 ggsave("E20_random_point_doubleAxis.pdf")
 ```
 
-## Extended Data Fig 6f
+## Extended Data Fig 7f
 ```{r message=F,warning=F}
 library(readxl)
 library(ggplot2)
@@ -432,7 +432,7 @@ p2 <- pheatmap(mat[21-p2$tree_col$order, ],
 p2
 ```
 
-## Fig 5e
+## Fig 6e
 # Plot of H-DNA ratio on unified region
 ```{r message=F,warning=F}
 HDNA <- data.frame(
@@ -447,7 +447,7 @@ ggplot(HDNA, aes(x = FC_segment, y = HDNA_ratio)) +
   theme(panel.grid = element_blank())
 ```
 
-## Fig 5f
+## Fig 6f
 ```{r message=F,warning=F}
 library(ggplot2)
 # read table from reads coverage file
@@ -485,7 +485,7 @@ ggplot() +
 ks.test(log2(γH2AX_DDX3X_unbind$siDDX3X_ratio), log2(γH2AX_DDX3X_bind$siDDX3X_ratio))
 ```
 
-## Extended Data Fig 9a and 9f
+## Extended Data Fig 10a and 10f
 ```{r message=F,warning=F}
 library(RColorBrewer)
 DDX3X_frac <- c(34.61, 46.70, 3.40, 15.29)
